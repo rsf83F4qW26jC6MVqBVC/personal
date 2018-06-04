@@ -3,7 +3,7 @@
 import sys
 from datetime import datetime
 from dateutil.parser import parse
-import math
+from math import sqrt
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
@@ -16,6 +16,72 @@ def pause(location=None):
         input("press the <ENTER> key to continue . . .")
     else:
         input("(DEBUG:"+str(location)+") press the <ENTER> key to continue . . .")
+
+
+#==========================================================================
+class ParametricSpace:
+
+    def __init__(self,NumIntPoints):
+        print("initializing parametric space . . . ",end="")
+        self.NumIntPoints=NumIntPoints
+        self.p,self.w=self.DefineIntPoints(NumIntPoints)
+        self.N,self.dNdxi,self.dNdeta=self.EvalInterpFuncs(NumIntPoints,self.p,4)
+        print("done")
+
+    def DefineIntPoints(self,NumIntPoints):
+        p=np.empty(shape=(2,NumIntPoints),dtype=np.float64)
+        w=np.empty(shape=(NumIntPoints),dtype=np.float64)
+        if (NumIntPoints==4):
+            iip=0
+            p[0,iip]=-1.0/sqrt(3.0)
+            p[1,iip]=-1.0/sqrt(3.0)
+            w[iip]=1.0
+
+            iip=1
+            p[0,iip]=+1.0/sqrt(3.0)
+            p[1,iip]=-1.0/sqrt(3.0)
+            w[iip]=1.0
+
+            iip=2
+            p[0,iip]=+1.0/sqrt(3.0)
+            p[1,iip]=+1.0/sqrt(3.0)
+            w[iip]=1.0
+
+            iip=3
+            p[0,iip]=-1.0/sqrt(3.0)
+            p[1,iip]=+1.0/sqrt(3.0)
+            w[iip]=1.0
+
+        else:
+            print("ERROR: unknown number of integration points, quitting . . .")
+            sys.exit(-1)
+        return p,w
+            
+
+    def EvalInterpFuncs(self,NumIntPoints,p,NumNodes):
+        N=np.empty(shape=(NumNodes,NumIntPoints),dtype=np.float64)
+        dNdxi=np.empty(shape=(NumNodes,NumIntPoints),dtype=np.float64)
+        dNdeta=np.empty(shape=(NumNodes,NumIntPoints),dtype=np.float64)
+        for iip in range(NumIntPoints):
+            xi=p[0,iip]
+            eta=p[1,iip]
+
+            N[0,iip]=1.0/4.0*(1.0-xi)*(1.0-eta)
+            N[1,iip]=1.0/4.0*(1.0+xi)*(1.0-eta)
+            N[2,iip]=1.0/4.0*(1.0+xi)*(1.0+eta)
+            N[3,iip]=1.0/4.0*(1.0-xi)*(1.0+eta)
+
+            dNdxi[0,iip]=1.0/4.0*(-1.0)*(1.0-eta)
+            dNdxi[1,iip]=1.0/4.0*(+1.0)*(1.0-eta)
+            dNdxi[2,iip]=1.0/4.0*(+1.0)*(1.0+eta)
+            dNdxi[3,iip]=1.0/4.0*(-1.0)*(1.0+eta)
+
+            dNdeta[0,iip]=1.0/4.0*(1.0-xi)*(-1.0)
+            dNdeta[1,iip]=1.0/4.0*(1.0+xi)*(-1.0)
+            dNdeta[2,iip]=1.0/4.0*(1.0+xi)*(+1.0)
+            dNdeta[3,iip]=1.0/4.0*(1.0-xi)*(+1.0)
+
+        return N,dNdxi,dNdeta
 
 
 #==========================================================================
@@ -97,7 +163,7 @@ class fields:
 
     def __init__(self,InitField,BCField,m,PlotInit=False):
         print("initializing field . . . ",end="")
-        self.DOFNums,self.NumActiveDOFs,self.fieldNP1=self.InitField(InitField,BCField,m.coords)
+        self.DOFNums,self.NumActiveDOFs,self.fNP1,self.fdotNP1=self.InitField(InitField,BCField,m.coords)
         if (PlotInit):
             # pause("beginning of PlotInit")
             fig=plt.figure("field initialization",figsize=(9,9))
@@ -111,34 +177,37 @@ class fields:
     def InitField(self,InitField,BCField,coords):
 
         NumNodes=coords.shape[0]
-        DOFNums=np.zeros(shape=(NumNodes),dtype=np.int32)
-        FieldNP1=np.zeros(shape=(NumNodes),dtype=np.float64)
+        DOFNums=np.empty(shape=(NumNodes),dtype=np.int32)
+        fNP1=np.empty(shape=(NumNodes),dtype=np.float64)
+        fdotNP1=np.empty(shape=(NumNodes),dtype=np.float64)
         NumDOFs=0
         NumActiveDOFs=0
         for iNode in range(NumNodes):
             NumDOFs=NumDOFs+1
             if (coords[iNode,1]<1.0e-05):
                 DOFNums[iNode]=-NumDOFs
-                FieldNP1[iNode]=BCField
+                fNP1[iNode]=BCField
+                fdotNP1[iNode]=0.0
             else:
                 NumActiveDOFs=NumActiveDOFs+1
                 DOFNums[iNode]=NumDOFs
-                FieldNP1[iNode]=InitField
+                fNP1[iNode]=InitField
+                fdotNP1[iNode]=0.0
 
-        return DOFNums,NumActiveDOFs,FieldNP1
+        return DOFNums,NumActiveDOFs,fNP1,fdotNP1
 
     def plot(self,m):
 
         # stupid ass arguments . . .
         NumNodes=m.coords.shape[0]
-        NumEdgeNodes=int(math.sqrt(NumNodes))
+        NumEdgeNodes=int(sqrt(NumNodes))
         xplot=np.arange(NumEdgeNodes)/(NumEdgeNodes-1)
         yplot=xplot
         xplot1,yplot1=np.meshgrid(xplot,yplot)
-        zplot=self.fieldNP1.reshape(NumEdgeNodes,NumEdgeNodes)
-        # zplot=self.fieldNP1
-        # print("after call to reshape:")
-        # print("fieldNP1: {}".format(self.fieldNP1))
+        zplot=self.fNP1.reshape(NumEdgeNodes,NumEdgeNodes)
+        print("after call to reshape:")
+        print("fNP1: {}".format(self.fNP1))
+        # print("fdotNP1: {}".format(self.fdotNP1))
         # print("zplot: {}".format(zplot))
 
         cs=plt.contourf(xplot1,yplot1,zplot,100,cmap=cm.jet)
@@ -208,8 +277,10 @@ class LinearSystem:
 def UpdateStorageTerm(m,f,ls):
 
     NumElems=m.elems.shape[1]
-    for iElem in range(NumElems):
-        print("updating storage term for iElem={} now . . .".format(iElem))
+    # for iElem in range(NumElems):
+        # print("updating storage term for iElem={} now . . .".format(iElem))
+        # for iip in range(NumIntPoints):
+        
 
 
 #==========================================================================
@@ -237,10 +308,13 @@ dt=0.5000000000000001
 
 MaxNonlinIters=20
 
+NumIntPoints=4
+
 
 #==========================================================================
 # initialization
 #==========================================================================
+ps=ParametricSpace(NumIntPoints)
 m=mesh(NumEdgeElems,PlotInit=False)
 f=fields(InitialTemp,BCTemp,m,PlotInit=False)
 ls=LinearSystem(f)
