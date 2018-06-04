@@ -6,6 +6,7 @@ from dateutil.parser import parse
 import math
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib import cm
 from matplotlib.backends.backend_pdf import PdfPages as pdfwriter
 
 
@@ -96,7 +97,7 @@ class fields:
 
     def __init__(self,InitField,BCField,m,PlotInit=False):
         print("initializing field . . . ",end="")
-        self.fieldNP1=self.InitField(InitField,BCField,m.coords)
+        self.DOFNums,self.NumActiveDOFs,self.fieldNP1=self.InitField(InitField,BCField,m.coords)
         if (PlotInit):
             # pause("beginning of PlotInit")
             fig=plt.figure("field initialization",figsize=(9,9))
@@ -106,20 +107,25 @@ class fields:
             # print("fieldNP1: {}".format(self.fieldNP1))
             plt.show()
         print("done")
-        print("")
 
     def InitField(self,InitField,BCField,coords):
 
         NumNodes=coords.shape[0]
-        FieldNP1=np.zeros(shape=(NumNodes))
+        DOFNums=np.zeros(shape=(NumNodes),dtype=np.int32)
+        FieldNP1=np.zeros(shape=(NumNodes),dtype=np.float64)
+        NumDOFs=0
+        NumActiveDOFs=0
         for iNode in range(NumNodes):
-            FieldNP1[iNode]=InitField
+            NumDOFs=NumDOFs+1
             if (coords[iNode,1]<1.0e-05):
+                DOFNums[iNode]=-NumDOFs
                 FieldNP1[iNode]=BCField
-        # print("within InitField:")
-        # print("InitField={}".format(FieldNP1))
+            else:
+                NumActiveDOFs=NumActiveDOFs+1
+                DOFNums[iNode]=NumDOFs
+                FieldNP1[iNode]=InitField
 
-        return FieldNP1
+        return DOFNums,NumActiveDOFs,FieldNP1
 
     def plot(self,m):
 
@@ -135,11 +141,27 @@ class fields:
         # print("fieldNP1: {}".format(self.fieldNP1))
         # print("zplot: {}".format(zplot))
 
-        plt.contourf(xplot1,yplot1,zplot)
-        # plt.show()
+        cs=plt.contourf(xplot1,yplot1,zplot,100,cmap=cm.jet)
+        cb=plt.colorbar(cs)
+        cb.ax.set_ylabel('temperature [K]')
 
         ax=plt.gca()
         ax.set_aspect('equal')
+
+
+#==========================================================================
+class LinearSystem:
+
+    def __init__(self,f):
+        print("initializing linear system . . . ",end="")
+        self.RHS=np.empty(shape=(f.NumActiveDOFs),dtype=np.float64)
+        self.LHS=np.empty(shape=(f.NumActiveDOFs,f.NumActiveDOFs),dtype=np.float64)
+        print("done")
+        print("")
+
+    def zero(self):
+        self.RHS.fill(0.0)
+        self.LHS.fill(0.0)
 
 
 #==========================================================================
@@ -182,6 +204,13 @@ class fields:
 # print("")
 
 
+#==========================================================================
+def UpdateStorageTerm(m,f,ls):
+
+    NumElems=m.elems.shape[1]
+    for iElem in range(NumElems):
+        print("updating storage term for iElem={} now . . .".format(iElem))
+
 
 #==========================================================================
 def plotter(m,f,time,PlotMesh,PlotField):
@@ -214,8 +243,9 @@ MaxNonlinIters=20
 #==========================================================================
 m=mesh(NumEdgeElems,PlotInit=False)
 f=fields(InitialTemp,BCTemp,m,PlotInit=False)
+ls=LinearSystem(f)
 
-fig=plt.figure("primary figure window",figsize=(9,9))
+fig=plt.figure("primary figure window",figsize=(11,9))
 plotter(m,f,0.0,True,True)
 
 
@@ -236,9 +266,12 @@ while True:
     while True:
         iNonlin=iNonlin+1
 
-        # UpdateElems
+        ls.zero()
+        UpdateStorageTerm(m,f,ls)
+        # UpdateDiffusionTerm
+        # UpdateSourceTerm
         # SolveLinearSystem
-        # UpdateField
+        # UpdateFields
         # CheckConvergnce
     
         if (iNonlin==MaxNonlinIters):
