@@ -9,7 +9,141 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages as pdfwriter
 
 
-# fh=plt.figure(figsize=(9,9))
+#==========================================================================
+def pause(location=None):
+    if (location==None):
+        input("press the <ENTER> key to continue . . .")
+    else:
+        input("(DEBUG:"+str(location)+") press the <ENTER> key to continue . . .")
+
+
+#==========================================================================
+class mesh:
+
+    def __init__(self,NumEdgeElems,PlotInit=False):
+        print("initializing mesh . . . ",end="")
+        self.coords,self.elems=self.InitMesh(NumEdgeElems)
+        # print("PlotInit in \"mesh\": {}".format(PlotInit))
+        if (PlotInit):
+            # pause("starting \"mesh\" initialization plot")
+            fig=plt.figure("mesh initialization",figsize=(9,9))
+            self.plot()
+            plt.show()
+            # pause("finishing \"mesh\" initialization plot")
+        print("done")
+
+    def InitMesh(self,NumEdgeElems):
+
+        coords=np.zeros(shape=((NumEdgeElems+1)*(NumEdgeElems+1),2))
+        elems=np.zeros(shape=(4,NumEdgeElems*NumEdgeElems),dtype=np.int64)
+
+        h=1.0/NumEdgeElems
+        iNode=-1
+        iElem=-1
+        for j in range(NumEdgeElems+1):
+            for i in range(NumEdgeElems+1):
+                # print("i={}".format(i))
+                iNode=iNode+1
+                coords[iNode,0]=i*h
+                coords[iNode,1]=j*h
+                if (i>0 and j>0):
+                    iElem=iElem+1
+                    elems[0,iElem]=iNode-(NumEdgeElems+1)-1
+                    elems[1,iElem]=iNode-(NumEdgeElems+1)
+                    elems[2,iElem]=iNode
+                    elems[3,iElem]=iNode-1
+                # if (16*6<iElem and iElem<16*7):
+                    # print("iElem={}, ElemNodes={}".format(iElem,elems[:,iElem]))
+
+        return coords,elems
+
+    def plot(self):
+
+        NumElems=self.elems.shape[1]
+        # print("NumElems={}".format(NumElems))
+        NumElemNodes=self.elems.shape[0]
+
+        xplot=list()
+        yplot=list()
+
+        for iElem in range(NumElems):
+        # for iElem in range(16*7-7):
+            # print("i={}".format(i))
+            for iNode in range(NumElemNodes):
+                NodeNum=self.elems[iNode,iElem]
+                # print("iElem={}, iNode={}, NodeNum={}".format(iElem,iNode,NodeNum))
+                xplot.append(self.coords[NodeNum,0])
+                yplot.append(self.coords[NodeNum,1])
+            NodeNum=self.elems[0,iElem]
+            xplot.append(self.coords[NodeNum,0])
+            yplot.append(self.coords[NodeNum,1])
+            # print("iElem={}, x_coords={}, y_coords={}".format(iElem,xplot,yplot))
+
+            # plt.plot(xplot,yplot,marker='o',color="black")
+            plt.plot(xplot,yplot,color="black")
+
+            # delete elements of a list, but leave the list itself intact
+            xplot.clear()
+            yplot.clear()
+
+        plt.grid(True)
+        ax=plt.gca()
+        ax.set_aspect('equal')
+
+
+#==========================================================================
+class fields:
+
+    def __init__(self,InitField,BCField,m,PlotInit=False):
+        print("initializing field . . . ",end="")
+        self.fieldNP1=self.InitField(InitField,BCField,m.coords)
+        if (PlotInit):
+            # pause("beginning of PlotInit")
+            fig=plt.figure("field initialization",figsize=(9,9))
+            # print("field figure number: {}".format(fig.number))
+            self.plot(m)
+            # pause("after field initialization plot . . .")
+            # print("fieldNP1: {}".format(self.fieldNP1))
+            plt.show()
+        print("done")
+        print("")
+
+    def InitField(self,InitField,BCField,coords):
+
+        NumNodes=coords.shape[0]
+        FieldNP1=np.zeros(shape=(NumNodes))
+        for iNode in range(NumNodes):
+            FieldNP1[iNode]=InitField
+            if (coords[iNode,1]<1.0e-05):
+                FieldNP1[iNode]=BCField
+        # print("within InitField:")
+        # print("InitField={}".format(FieldNP1))
+
+        return FieldNP1
+
+    def plot(self,m):
+
+        # stupid ass arguments . . .
+        NumNodes=m.coords.shape[0]
+        NumEdgeNodes=int(math.sqrt(NumNodes))
+        xplot=np.arange(NumEdgeNodes)/(NumEdgeNodes-1)
+        yplot=xplot
+        xplot1,yplot1=np.meshgrid(xplot,yplot)
+        zplot=self.fieldNP1.reshape(NumEdgeNodes,NumEdgeNodes)
+        # zplot=self.fieldNP1
+        # print("after call to reshape:")
+        # print("fieldNP1: {}".format(self.fieldNP1))
+        # print("zplot: {}".format(zplot))
+
+        plt.contourf(xplot1,yplot1,zplot)
+        # plt.show()
+
+        ax=plt.gca()
+        ax.set_aspect('equal')
+
+
+#==========================================================================
+# fig=plt.figure(figsize=(9,9))
 
 
 
@@ -48,116 +182,15 @@ from matplotlib.backends.backend_pdf import PdfPages as pdfwriter
 # print("")
 
 
+
 #==========================================================================
-def PlotMesh(coords,elems):
-
-    NumElems=elems.shape[1]
-    # print("NumElems={}".format(NumElems))
-    NumElemNodes=elems.shape[0]
-
-    plt.figure(figsize=(9,9))
-    xplot=list()
-    yplot=list()
-
-    for iElem in range(NumElems):
-    # for iElem in range(16*7-7):
-    #     # print("i={}".format(i))
-        for iNode in range(NumElemNodes):
-            NodeNum=elems[iNode,iElem]
-            # print("iElem={}, iNode={}, NodeNum={}".format(iElem,iNode,NodeNum))
-            xplot.append(coords[NodeNum,0])
-            yplot.append(coords[NodeNum,1])
-        NodeNum=elems[0,iElem]
-        xplot.append(coords[NodeNum,0])
-        yplot.append(coords[NodeNum,1])
-
-        # print("iElem={}, x_coords={}, y_coords={}".format(iElem,xplot,yplot))
-
-        # plt.plot(xplot,yplot,marker='o',color="black")
-        plt.plot(xplot,yplot,color="black")
-        plt.grid(True)
-
-        xplot.clear()
-        yplot.clear()
-
-    ax=plt.gca()
-    ax.set_aspect('equal')
+def plotter(m,f,time,PlotMesh,PlotField):
+    if (PlotMesh):
+        m.plot()
+    if (PlotField):
+        f.plot(m)
+    plt.title("time={:12.5e}".format(time))
     plt.show()
-
-
-#==========================================================================
-def PlotField(coords,field):
-
-    # stupid ass arguments . . .
-    NumNodes=coords.shape[0]
-    NumEdgeNodes=int(math.sqrt(NumNodes))
-    xplot=np.arange(NumEdgeNodes)
-    yplot=np.arange(NumEdgeNodes)
-    xplot1,yplot1=np.meshgrid(xplot,yplot)
-    zplot=field.reshape(NumEdgeNodes,NumEdgeNodes)
-
-    plt.figure(figsize=(9,9))
-
-    plt.contourf(xplot1,yplot1,zplot)
-
-    ax=plt.gca()
-    ax.set_aspect('equal')
-    plt.show()
-
-
-
-#==========================================================================
-def InitMesh(NumEdgeElems):
-
-    print("initializing mesh . . . ",end="")
-
-    coords=np.zeros(shape=((NumEdgeElems+1)*(NumEdgeElems+1),2))
-    elems=np.zeros(shape=(4,NumEdgeElems*NumEdgeElems),dtype=np.int64)
-
-    h=1.0/NumEdgeElems
-    iNode=-1
-    iElem=-1
-    for j in range(NumEdgeElems+1):
-        for i in range(NumEdgeElems+1):
-            # print("i={}".format(i))
-            iNode=iNode+1
-            coords[iNode,0]=i*h
-            coords[iNode,1]=j*h
-            if (i>0 and j>0):
-                iElem=iElem+1
-                elems[0,iElem]=iNode-(NumEdgeElems+1)-1
-                elems[1,iElem]=iNode-(NumEdgeElems+1)
-                elems[2,iElem]=iNode
-                elems[3,iElem]=iNode-1
-                # if (16*6<iElem and iElem<16*7):
-                    # print("iElem={}, ElemNodes={}".format(iElem,elems[:,iElem]))
-
-
-    # PlotMesh(coords,elems)
-    
-    print("done")
-    print("")
-
-    return coords,elems
-
-
-#==========================================================================
-def InitField(InitialTemp,BCTemp,coords):
-
-    NumNodes=coords.shape[0]
-
-    TempNP1=np.zeros(shape=(NumNodes))
-
-    for iNode in range(NumNodes):
-        TempNP1[iNode]=InitialTemp
-        if (coords[iNode,1]<1.0e-05):
-            TempNP1[iNode]=BCTemp
-
-
-    PlotField(coords,TempNP1)
-
-    return TempNP1
-
 
 
 #==========================================================================
@@ -173,15 +206,17 @@ EndTime=1.0
 dt=0.1
 dt=0.5000000000000001
 
-MaxNonlinIters=100
+MaxNonlinIters=20
 
 
 #==========================================================================
 # initialization
 #==========================================================================
-coords,elems=InitMesh(NumEdgeElems)
-TempNP1=InitField(InitialTemp,BCTemp,coords)
+m=mesh(NumEdgeElems,PlotInit=False)
+f=fields(InitialTemp,BCTemp,m,PlotInit=False)
 
+fig=plt.figure("primary figure window",figsize=(9,9))
+plotter(m,f,0.0,True,True)
 
 
 #==========================================================================
