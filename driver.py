@@ -160,33 +160,49 @@ class mesh:
 
     def UpdateKinematics(self,f):
     
+        NumElemNodes=self.elems.shape[0]
         NumElems=self.elems.shape[1]
 
+        RHS=np.empty(shape=(2),dtype=np.float64)
+        LHS=np.empty(shape=(2,2),dtype=np.float64)
+        
+        dNdx=np.empty(shape=(NumElemNodes,NumIntPoints),dtype=np.float64)
+        dNdy=np.empty(shape=(NumElemNodes,NumIntPoints),dtype=np.float64)
+
         for iElem in range(NumElems):
-            ElemNodes=m.elems[:,iElem]
-            # NodeCoords=
+            ElemNodes=self.elems[:,iElem]
+            NodeCoords=self.coords[ElemNodes,:]
+            # print("NodeCoords={}".format(NodeCoords))
             # NodeField=
 # dNdx: elements,IntPoints,N,coords
 # dTdx: dNdx, T
             for iip in range(NumIntPoints):        
                 dNdxi=ps.dNdxi[:,iip]
+                # print("dNdxi={}".format(dNdxi))
                 dNdeta=ps.dNdeta[:,iip]
 
-                dx_dxi=
-                dy_dxi=
-                dx_deta=
-                dy_deta=
+                # J=[ dx_dxi   dy_dxi]
+                #   [dx_deta  dy_deta]
+                dx_dxi=np.dot(ps.dNdxi[:,iip],NodeCoords[:,0])
+                LHS[0,0]=dx_dxi
+                dy_dxi=np.dot(ps.dNdxi[:,iip],NodeCoords[:,1])
+                LHS[0,1]=dy_dxi
+                dx_deta=np.dot(ps.dNdeta[:,iip],NodeCoords[:,0])
+                LHS[1,0]=dx_deta
+                dy_deta=np.dot(ps.dNdeta[:,iip],NodeCoords[:,1])
+                LHS[1,1]=dy_deta
 
-                for iNode in range(NumNodes):
-                    dN_dxi[0]=dNdxi[iNode]
-                    dN_dxi[1]=dNdeta[iNode]
-            #     J=[dx_dxi   dy_dxi]
-            #        dx_deta  dy_deta]
-            #     dNdx=np.linslg.solve(J,dNdxi)
+                for iNode in range(NumElemNodes):
+                    # print("iNode={}".format(iNode))
+                    RHS[0]=dNdxi[iNode]
+                    RHS[1]=dNdeta[iNode]
+                    temp=np.linalg.solve(LHS,RHS)
+                    dNdx[iNode,iip]=temp[0]
+                    dNdy[iNode,iip]=temp[1]
 
 
         self.dNdx=dNdx
-        self.dfdx=dfdx
+        self.dNdy=dNdy
 
 
 #==========================================================================
@@ -557,7 +573,7 @@ ti=TimeInt(TimeIntType,alpha)
 ls=LinearSystem(f)
 
 fig=plt.figure("primary figure window",figsize=(11,9))
-plotter(m,f,0.0,True,True)
+# plotter(m,f,0.0,True,True)
 
 
 #==========================================================================
