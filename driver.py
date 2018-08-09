@@ -303,7 +303,7 @@ class fields:
         # print("fdotNP1: {}".format(self.fdotNP1))
         # print("zplot: {}".format(zplot))
 
-        cs=plt.contourf(xplot1,yplot1,zplot,100,cmap=cm.jet)
+        cs=plt.contourf(xplot1,yplot1,zplot,20,cmap=cm.jet)
         if (first):
             cb=plt.colorbar(cs)
             cb.ax.set_ylabel('temperature [K]')
@@ -320,6 +320,28 @@ class fields:
         self.fdotNP1=ti.update(dt,self)
 
 
+#==========================================================================
+class sources:
+
+    def __init__(self,InitField,BCField,m,PlotInit=False):
+        print("initializing field . . . ",end="")
+        self.InitField(InitField,BCField,m.coords)
+        if (PlotInit):
+            # pause("beginning of PlotInit")
+            fig=plt.figure("field initialization",figsize=(9,9))
+            # print("field figure number: {}".format(fig.number))
+            self.plot(m)
+            # pause("after field initialization plot . . .")
+            # print("fieldNP1: {}".format(self.fieldNP1))
+            plt.show()
+        print("done")
+
+    def InitField(self,InitField,BCField,coords):
+
+        NumNodes=coords.shape[0]
+        DOFNums=np.empty(shape=(NumNodes),dtype=np.int32)
+        fNP1=np.empty(shape=(NumNodes),dtype=np.float64)
+ 
 #==========================================================================
 class TimeInt:
 
@@ -345,6 +367,58 @@ class TimeInt:
             fdotNP1=(f.fNP1-f.fN-dt*(1.0-alpha)*f.fdotN)/(alpha*dt)
 
         return fdotNP1
+
+
+#==========================================================================
+class NonlinearControl:
+
+    def __init__(self,IncRelTol,IncAbsTol):
+        print("initializing nonlinear controls . . . ",end="")
+        self.IncRelTol=IncRelTol
+        self.IncAbsTol=IncAbsTol
+        self.IncNorm0=0.0
+        self.IncNormReq=0.0
+        print("done")
+
+
+    def CheckConvergence(self,iNonlin,df):
+
+        IncNorm=np.sqrt(np.dot(df,df))
+        if (iNonlin==1):
+            self.IncNorm0=IncNorm
+            self.IncNormReq=max(IncNorm*IncRelTol,IncAbsTol)
+            IncPass=False
+            IncPassStr=" N/A"
+        else:
+            if (IncNorm<self.IncNormReq):
+                IncPass=True
+                IncPassStr="PASS"
+            else:
+                IncPass=False
+                IncPassStr="FAIL"
+
+        print(" convergence information, nonlinear iteration {}".format(iNonlin))
+        print("                initial        current        required      status")
+    # fix the workflow to support proper checking of residual and stuff . . .`
+        print("increment:   {:12.5e}   {:12.5e}    {:12.5e}     {}".format(self.IncNorm0,IncNorm,self.IncNormReq,IncPassStr)) 
+        print("")
+        
+        if (IncPass==True):
+            print("Nonlinear solution complete")
+            ConvergedFlag=True
+            CompleteFlag=True
+        elif (iNonlin==MaxNonlinIters):
+            print("ERROR: nonlinear solve not converging, quitting . . .")
+            print("")
+            ConvergedFlag=False
+            CompleteFlag=True
+        else:
+            print("Nonlinear solution not complete, proceeding . . .")
+            ConvergedFlag=False
+            CompleteFlag=False
+
+
+        return ConvergedFlag,CompleteFlag
 
 
 #==========================================================================
@@ -419,7 +493,7 @@ def UpdateStorageTerm(ps,m,mat,f,ls):
 
     for iElem in range(NumElems):
         PrintFlag=False
-        # if (iElem%7==0):
+        # if (iElem==3 or iElem==5):
         #     PrintFlag=True
         if (PrintFlag):
             print("updating storage term for iElem={} now . . .".format(iElem))
@@ -447,16 +521,20 @@ def UpdateStorageTerm(ps,m,mat,f,ls):
             ElemLHS=ElemLHS+np.outer(Nlocal,Nlocal)*mat.rho*mat.cp*dTdot_dT
 
         if (PrintFlag):
-            print("ElemRHS(iElem={})={}".format(iElem,ElemRHS))
-            print("ElemLHS(iElem={})={}".format(iElem,ElemLHS))
+            print("storage ElemRHS(iElem={})={}".format(iElem,ElemRHS))
+            print("storage ElemLHS(iElem={})={}".format(iElem,ElemLHS))
         ElemDOFs=f.DOFNums[ElemNodes]
         if (PrintFlag):
             print("ElemDOFs(iElem={})={}".format(iElem,ElemDOFs))
         for iDOF in range(NumElemNodes):
             iDOFNum=ElemDOFs[iDOF]
+            if (iDOFNum<0):
+                continue
             ls.RHS[iDOFNum-1]=ls.RHS[iDOFNum-1]+ElemRHS[iDOF]
             for jDOF in range(NumElemNodes):
                 jDOFNum=ElemDOFs[jDOF]
+                if (jDOFNum<0):
+                    continue
                 ls.LHS[iDOFNum-1,jDOFNum-1]=ls.LHS[iDOFNum-1,jDOFNum-1]+ElemLHS[iDOF,jDOF]
         if (PrintFlag):
             print("")
@@ -488,8 +566,8 @@ def UpdateDiffusionTerm(ps,m,mat,f,ls):
 
     for iElem in range(NumElems):
         PrintFlag=False
-        # if (iElem%7==0):
-        #     PrintFlag=True
+        # if (iElem==2 or iElem==3):
+        # PrintFlag=True
         if (PrintFlag):
             print("updating diffusion term for iElem={} now . . .".format(iElem))
         ElemNodes=m.elems[:,iElem]
@@ -498,6 +576,7 @@ def UpdateDiffusionTerm(ps,m,mat,f,ls):
         NodeRates=f.fdotNP1[ElemNodes]
         if (PrintFlag):
             print("ElemNodes(iElem={})={}".format(iElem,ElemNodes))
+            print("NodeTemps(iElem={})={}".format(iElem,NodeTemps))
         ElemRHS.fill(0.0)
         ElemLHS.fill(0.0)
         for iip in range(NumIntPoints):
@@ -516,36 +595,41 @@ def UpdateDiffusionTerm(ps,m,mat,f,ls):
                 dTdx[0]=dTdx[0]+dNdx[iElem,iip,iElemNode]*NodeTemps[iElemNode]
                 dTdx[1]=dTdx[1]+dNdy[iElem,iip,iElemNode]*NodeTemps[iElemNode]
 
-
             # for convenience
             dNdx_local[0,:]=dNdx[iElem,iip,:]
             dNdx_local[1,:]=dNdy[iElem,iip,:]
 
             # RHS
+            # print("dNdx_local(iElem={})={}".format(iElem,dNdx_local))
+            # print("dNdy(iElem={},iip={})={}".format(iElem,iip,dNdy[iElem,iip,:]))
+            # print("dTdx(iElem={})={}".format(iElem,dTdx))
             ElemRHS=ElemRHS+np.matmul(np.transpose(dNdx_local),mat.k*dTdx)
             # LHS
             ElemLHS=ElemLHS+np.matmul(np.transpose(dNdx_local),mat.k*dNdx_local)
 
         if (PrintFlag):
+            print("global RHS (before assembly)={}".format(ls.RHS))
             print("ElemRHS(iElem={})={}".format(iElem,ElemRHS))
-            print("ElemLHS(iElem={})={}".format(iElem,ElemLHS))
+            # print("ElemLHS(iElem={})={}".format(iElem,ElemLHS))
         ElemDOFs=f.DOFNums[ElemNodes]
-        if (PrintFlag):
-            print("ElemDOFs(iElem={})={}".format(iElem,ElemDOFs))
+        # if (PrintFlag):
+        # print("ElemDOFs(iElem={})={}".format(iElem,ElemDOFs))
         for iDOF in range(NumElemNodes):
             iDOFNum=ElemDOFs[iDOF]
+            # print("iDOFNum(iDOF={})={}".format(iDOF,iDOFNum))
+            if (iDOFNum<0):
+                continue
             ls.RHS[iDOFNum-1]=ls.RHS[iDOFNum-1]+ElemRHS[iDOF]
             for jDOF in range(NumElemNodes):
                 jDOFNum=ElemDOFs[jDOF]
+                if (jDOFNum<0):
+                    continue
                 ls.LHS[iDOFNum-1,jDOFNum-1]=ls.LHS[iDOFNum-1,jDOFNum-1]+ElemLHS[iDOF,jDOF]
+
         if (PrintFlag):
-            print("")
-        # if (iElem==33):
-        #     sys.exit()
-        if (PrintFlag):
+            print("global RHS (after assembly)={}".format(ls.RHS))
             print("finished updating diffusion term for iElem={}".format(iElem))
             print("")
-
 
 
 #==========================================================================
@@ -558,13 +642,13 @@ def plotter(m,f,time,nonlin,PlotMesh,PlotField):
         plt.title("time={:12.5e}".format(time))
     else:
         plt.title("time={:12.5e}, nonlinear iteration={}".format(time,nonlin))
-    plt.pause(1.05)
+    plt.pause(0.50)
 
 
 #==========================================================================
 # user inputs
 #==========================================================================
-NumEdgeElems=3
+NumEdgeElems=20
 NumIntPoints=4
 
 # 316L
@@ -578,14 +662,15 @@ BCTemp=505.0
 MaxNumSteps=10^10
 MaxNumSteps=2
 EndTime=1.0
-dt=0.01
+dt=1.0e-02
 TimeIntType=1 # generalized trapezoidal
 alpha=1.0
 
 MaxNonlinIters=10
 
 ResRelTol=1.0e-03
-IncRelTol=1.0e-03
+IncRelTol=1.0e-06
+IncAbsTol=1.0e-12
 
 
 #==========================================================================
@@ -595,9 +680,13 @@ ps=ParametricSpace(NumIntPoints)
 m=mesh(NumEdgeElems,PlotInit=False)
 mat=material(rho,cp,k)
 f=fields(InitialTemp,BCTemp,m,PlotInit=False)
+vs=sources()
+
 ti=TimeInt(TimeIntType,alpha)
+nc=NonlinearControl(IncRelTol,IncAbsTol)
 ls=LinearSystem(f)
 
+PlotFlag=False
 PlotFlag=True
 
 if (PlotFlag):
@@ -616,7 +705,9 @@ while True:
     # deal with the time stepping
     Time=Time+dt
 
+    print("================================================================")
     print("Starting step {:8d} at time {:12.5e}".format(StepNum,Time))
+    print("================================================================")
 
     iNonlin=0
     while True:
@@ -627,28 +718,23 @@ while True:
         UpdateDiffusionTerm(ps,m,mat,f,ls)
         # UpdateSourceTerm
         dT=ls.solve()
-        print("solution before update={}".format(f.fNP1))
-        print("solution increment={}".format(dT))
+        # print("solution before update={}".format(f.fNP1))
+        # print("solution increment={}".format(dT))
         f.update(dT,m,ti,dt)
-        print("solution after update={}".format(f.fNP1))
+        # print("solution after update={}".format(f.fNP1))
         print("")
-        # CheckConvergnce
-        
-        IncNorm=np.sqrt(np.dot(dT,dT))
-        if (iNonlin==1):
-            IncNorm0=IncNorm
-            IncNormReq=IncNorm*IncRelTol
-        print("                initial        current        required")
-        print("increment:   {:12.5e}   {:12.5e}    {:12.5e}".format(IncNorm0,IncNorm,IncNormReq)) 
-        
-    
-        if (iNonlin==MaxNonlinIters):
-            print("ERROR: nonlinear solve not converging, quitting . . .")
-            print("")
-            sys.exit(0)
 
-        if (PlotFlag):
-            plotter(m,f,Time,iNonlin,True,True)
+        ConvergedFlag,CompleteFlag=nc.CheckConvergence(iNonlin,dT)
+
+        if (ConvergedFlag):
+            if (PlotFlag):
+                plotter(m,f,Time,0,True,True)
+        # else:
+        #     if (PlotFlag):
+        #         plotter(m,f,Time,iNonlin,True,True)
+
+        if CompleteFlag:
+            break
 
     print("")
 
