@@ -289,7 +289,7 @@ class fields:
         self.fdotNP1=fdotNP1
         self.fdotN=fdotN
 
-    def plot(self,m):
+    def plot(self,m,first):
 
         # stupid ass arguments . . .
         NumNodes=m.coords.shape[0]
@@ -304,8 +304,9 @@ class fields:
         # print("zplot: {}".format(zplot))
 
         cs=plt.contourf(xplot1,yplot1,zplot,100,cmap=cm.jet)
-        cb=plt.colorbar(cs)
-        cb.ax.set_ylabel('temperature [K]')
+        if (first):
+            cb=plt.colorbar(cs)
+            cb.ax.set_ylabel('temperature [K]')
 
         ax=plt.gca()
         ax.set_aspect('equal')
@@ -548,13 +549,16 @@ def UpdateDiffusionTerm(ps,m,mat,f,ls):
 
 
 #==========================================================================
-def plotter(m,f,time,PlotMesh,PlotField):
+def plotter(m,f,time,nonlin,PlotMesh,PlotField):
     if (PlotMesh):
         m.plot()
     if (PlotField):
-        f.plot(m)
-    plt.title("time={:12.5e}".format(time))
-    plt.show()
+        f.plot(m,(time==0.0 and nonlin==0))
+    if (nonlin==0):
+        plt.title("time={:12.5e}".format(time))
+    else:
+        plt.title("time={:12.5e}, nonlinear iteration={}".format(time,nonlin))
+    plt.pause(1.05)
 
 
 #==========================================================================
@@ -578,7 +582,7 @@ dt=0.01
 TimeIntType=1 # generalized trapezoidal
 alpha=1.0
 
-MaxNonlinIters=3
+MaxNonlinIters=10
 
 ResRelTol=1.0e-03
 IncRelTol=1.0e-03
@@ -594,8 +598,11 @@ f=fields(InitialTemp,BCTemp,m,PlotInit=False)
 ti=TimeInt(TimeIntType,alpha)
 ls=LinearSystem(f)
 
-fig=plt.figure("primary figure window",figsize=(11,9))
-plotter(m,f,0.0,True,True)
+PlotFlag=True
+
+if (PlotFlag):
+    fig=plt.figure("primary figure window",figsize=(11,9))
+    plotter(m,f,0.0,0,True,True)
 
 
 #==========================================================================
@@ -627,15 +634,25 @@ while True:
         print("")
         # CheckConvergnce
         
+        IncNorm=np.sqrt(np.dot(dT,dT))
+        if (iNonlin==1):
+            IncNorm0=IncNorm
+            IncNormReq=IncNorm*IncRelTol
+        print("                initial        current        required")
+        print("increment:   {:12.5e}   {:12.5e}    {:12.5e}".format(IncNorm0,IncNorm,IncNormReq)) 
+        
     
         if (iNonlin==MaxNonlinIters):
             print("ERROR: nonlinear solve not converging, quitting . . .")
             print("")
             sys.exit(0)
 
+        if (PlotFlag):
+            plotter(m,f,Time,iNonlin,True,True)
+
     print("")
 
-    # termination criteria
+    # time stepping termination criteria
     # number of steps
     if (StepNum==MaxNumSteps):
         break
@@ -643,5 +660,6 @@ while True:
     if (Time>=EndTime):
         break
 
-
+if (PlotFlag):
+    plt.show()
 
