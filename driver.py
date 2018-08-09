@@ -1,4 +1,4 @@
-#!/opt/local/bin/python
+#!/opt/local/bin/python3.6
 
 import sys
 from datetime import datetime
@@ -158,16 +158,15 @@ class mesh:
         ax.set_aspect('equal')
 
 
-    def UpdateKinematics(self,f):
-    
+    def UpdateKinematics(self,ps):
         NumElemNodes=self.elems.shape[0]
         NumElems=self.elems.shape[1]
 
         RHS=np.empty(shape=(2),dtype=np.float64)
         LHS=np.empty(shape=(2,2),dtype=np.float64)
         
-        dNdx=np.empty(shape=(NumElemNodes,NumIntPoints),dtype=np.float64)
-        dNdy=np.empty(shape=(NumElemNodes,NumIntPoints),dtype=np.float64)
+        dNdx=np.empty(shape=(NumElems,NumIntPoints,NumElemNodes),dtype=np.float64)
+        dNdy=np.empty(shape=(NumElems,NumIntPoints,NumElemNodes),dtype=np.float64)
 
         for iElem in range(NumElems):
             ElemNodes=self.elems[:,iElem]
@@ -197,8 +196,8 @@ class mesh:
                     RHS[0]=dNdxi[iNode]
                     RHS[1]=dNdeta[iNode]
                     temp=np.linalg.solve(LHS,RHS)
-                    dNdx[iNode,iip]=temp[0]
-                    dNdy[iNode,iip]=temp[1]
+                    dNdx[iElem,iip,iNode]=temp[0]
+                    dNdy[iElem,iip,iNode]=temp[1]
 
 
         self.dNdx=dNdx
@@ -208,9 +207,10 @@ class mesh:
 #==========================================================================
 class material:
 
-    def __init__(self,rho,cp):
+    def __init__(self,rho,cp,k):
         self.rho=rho
         self.cp=cp
+        self.k=k
 
     # def InitMesh(self,NumEdgeElems):
 
@@ -361,7 +361,7 @@ class LinearSystem:
         self.LHS.fill(0.0)
 
     def solve(self):
-        df=np.linalg.solve(self.LHS,self.RHS)
+        df=-np.linalg.solve(self.LHS,self.RHS)
         return df
 
 
@@ -417,10 +417,11 @@ def UpdateStorageTerm(ps,m,mat,f,ls):
     # print("DOFNums={}".format(f.DOFNums))
 
     for iElem in range(NumElems):
-        print("updating storage term for iElem={} now . . .".format(iElem))
         PrintFlag=False
-        if (iElem%7==0):
-            PrintFlag=True
+        # if (iElem%7==0):
+        #     PrintFlag=True
+        if (PrintFlag):
+            print("updating storage term for iElem={} now . . .".format(iElem))
         ElemNodes=m.elems[:,iElem]
         NodeCoords=m.coords[ElemNodes,:]
         NodeTemps=f.fNP1[ElemNodes]
@@ -436,7 +437,7 @@ def UpdateStorageTerm(ps,m,mat,f,ls):
             # print("IntPointRate={}".format(IntPointRate))
             # print("dt={}".format(dt))
             dTdot_dT=ti.dTdot_dT(dt)
-            print("dTdot_dT={}".format(dTdot_dT))
+            # print("dTdot_dT={}".format(dTdot_dT))
             Nlocal=ps.N[:,iip]
 
             # RHS
@@ -460,8 +461,9 @@ def UpdateStorageTerm(ps,m,mat,f,ls):
             print("")
         # if (iElem==33):
         #     sys.exit()
-        print("finished updating storage term for iElem={}".format(iElem))
-        print("")
+        if (PrintFlag):
+            print("finished updating storage term for iElem={}".format(iElem))
+            print("")
 
 
 #==========================================================================
@@ -475,10 +477,18 @@ def UpdateDiffusionTerm(ps,m,mat,f,ls):
     ElemLHS=np.empty(shape=(NumElemNodes,NumElemNodes),dtype=np.float64)
     # print("DOFNums={}".format(f.DOFNums))
 
+    # better to make this call once, for all (element,int point) pairs
+    m.UpdateKinematics(ps)
+    dNdx=m.dNdx
+    dNdy=m.dNdy
+    
+    dTdx=np.empty(shape=(2),dtype=np.float64)
+    dNdx_local=np.empty(shape=(2,NumElemNodes),dtype=np.float64)
+
     for iElem in range(NumElems):
         PrintFlag=False
-        if (iElem%7==0):
-            PrintFlag=True
+        # if (iElem%7==0):
+        #     PrintFlag=True
         if (PrintFlag):
             print("updating diffusion term for iElem={} now . . .".format(iElem))
         ElemNodes=m.elems[:,iElem]
@@ -496,15 +506,24 @@ def UpdateDiffusionTerm(ps,m,mat,f,ls):
             # print("IntPointRate={}".format(IntPointRate))
             # print("dt={}".format(dt))
             dTdot_dT=ti.dTdot_dT(dt)
-            print("dTdot_dT={}".format(dTdot_dT))
+            # print("dTdot_dT={}".format(dTdot_dT))
             Nlocal=ps.N[:,iip]
 
-            m.UpdateKinematics(f)
+            # calculate dTdx
+            dTdx.fill(0.0)
+            for iElemNode in range(NumElemNodes):
+                dTdx[0]=dTdx[0]+dNdx[iElem,iip,iElemNode]*NodeTemps[iElemNode]
+                dTdx[1]=dTdx[1]+dNdy[iElem,iip,iElemNode]*NodeTemps[iElemNode]
+
+
+            # for convenience
+            dNdx_local[0,:]=dNdx[iElem,iip,:]
+            dNdx_local[1,:]=dNdy[iElem,iip,:]
 
             # RHS
-            ElemRHS=ElemRHS+dNlocal_dx*mat.k*dTdx
+            ElemRHS=ElemRHS+np.matmul(np.transpose(dNdx_local),mat.k*dTdx)
             # LHS
-            ElemLHS=ElemLHS+np.outer(dNlocal_dx,dNlocal_dx)*mat.k
+            ElemLHS=ElemLHS+np.matmul(np.transpose(dNdx_local),mat.k*dNdx_local)
 
         if (PrintFlag):
             print("ElemRHS(iElem={})={}".format(iElem,ElemRHS))
@@ -547,6 +566,7 @@ NumIntPoints=4
 # 316L
 rho=8.0e-06 # kg/mm^3
 cp=500.0 # J/kg-K
+k=0.0163 # W/mm-K
 
 InitialTemp=303.0
 BCTemp=505.0
@@ -554,12 +574,14 @@ BCTemp=505.0
 MaxNumSteps=10^10
 MaxNumSteps=2
 EndTime=1.0
-dt=0.1
+dt=0.01
 TimeIntType=1 # generalized trapezoidal
 alpha=1.0
 
-MaxNonlinIters=2
+MaxNonlinIters=3
 
+ResRelTol=1.0e-03
+IncRelTol=1.0e-03
 
 
 #==========================================================================
@@ -567,13 +589,13 @@ MaxNonlinIters=2
 #==========================================================================
 ps=ParametricSpace(NumIntPoints)
 m=mesh(NumEdgeElems,PlotInit=False)
-mat=material(rho,cp)
+mat=material(rho,cp,k)
 f=fields(InitialTemp,BCTemp,m,PlotInit=False)
 ti=TimeInt(TimeIntType,alpha)
 ls=LinearSystem(f)
 
 fig=plt.figure("primary figure window",figsize=(11,9))
-# plotter(m,f,0.0,True,True)
+plotter(m,f,0.0,True,True)
 
 
 #==========================================================================
@@ -598,9 +620,13 @@ while True:
         UpdateDiffusionTerm(ps,m,mat,f,ls)
         # UpdateSourceTerm
         dT=ls.solve()
+        print("solution before update={}".format(f.fNP1))
         print("solution increment={}".format(dT))
         f.update(dT,m,ti,dt)
+        print("solution after update={}".format(f.fNP1))
+        print("")
         # CheckConvergnce
+        
     
         if (iNonlin==MaxNonlinIters):
             print("ERROR: nonlinear solve not converging, quitting . . .")
