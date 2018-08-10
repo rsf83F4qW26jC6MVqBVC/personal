@@ -319,29 +319,68 @@ class fields:
                 self.fNP1[iNode]=self.fNP1[iNode]+df[DOFNum-1]
         self.fdotNP1=ti.update(dt,self)
 
+    def advance(self):
+        NumDOFs=self.fNP1.shape[0]
+        for iDOF in range(NumDOFs):
+            self.fN[iDOF]=self.fNP1[iDOF]
+            self.fdotN[iDOF]=self.fdotNP1[iDOF]
+            self.fdotNP1[iDOF]=0.0
+
+    def timehist_node(self,NodeNum):
+        if (not hasattr(self,"TimeHistNodes")):
+            self.TimeHistNodes=list()
+        self.TimeHistNodes.append(NodeNum)
+
+    def timehist(self,NodeNum,t=-1.0,f=0.0,DoIt=False):
+        if (t>-1.0):
+            if (not hasattr(self,"NumTimeStates")):
+                self.NumTimeStates=list()
+                for NodeNum in self.TimeHistNodes:
+                    self.NumTimeStates.append(0)
+                self.tplot=np.empty(shape=(len(self.TimeHistNodes),1),dtype=np.float64)
+                self.fplot=np.empty(shape=(len(self.TimeHistNodes),1),dtype=np.float64)
+            NodeIndex=self.TimeHistNodes.index(NodeNum)
+            self.NumTimeStates[NodeIndex]=self.NumTimeStates[NodeIndex]+1
+            if (self.tplot.shape[1]<self.NumTimeStates[NodeIndex]):
+                # print("tplot before append={}".format(self.tplot))
+                # additional time state available for all nodes
+                AddTimeState=np.empty(shape=(len(self.TimeHistNodes),1),dtype=np.float64)
+                # print("AddTimeState={}".format(AddTimeState))
+                self.tplot=np.append(self.tplot,AddTimeState,axis=1)
+                self.fplot=np.append(self.fplot,AddTimeState,axis=1)
+                # print("tplot after append={}".format(self.tplot))
+                # print("fplot after append={}".format(self.fplot))
+                # print("tplot shape after append={}".format(self.tplot.shape))
+            self.tplot[NodeIndex,self.NumTimeStates[NodeIndex]-1]=t
+            self.fplot[NodeIndex,self.NumTimeStates[NodeIndex]-1]=f
+
+        elif (DoIt):
+            NodeIndex=self.TimeHistNodes.index(NodeNum)
+            fig=plt.figure("time history window",figsize=(11,9))
+            plt.plot(self.tplot[NodeIndex,:],self.fplot[NodeIndex,:],color="black")
+            plt.grid(True)
+            # ax=plt.gca()
+            # ax.set_aspect('equal')
+            plt.show()
+            
+
 
 #==========================================================================
 class sources:
 
-    def __init__(self,InitField,BCField,m,PlotInit=False):
-        print("initializing field . . . ",end="")
-        self.InitField(InitField,BCField,m.coords)
-        if (PlotInit):
-            # pause("beginning of PlotInit")
-            fig=plt.figure("field initialization",figsize=(9,9))
-            # print("field figure number: {}".format(fig.number))
-            self.plot(m)
-            # pause("after field initialization plot . . .")
-            # print("fieldNP1: {}".format(self.fieldNP1))
-            plt.show()
+    def __init__(self,speed,power):
+        print("initializing sources . . . ",end="")
+        self.speed=speed
+        self.power=power
         print("done")
 
-    def InitField(self,InitField,BCField,coords):
+    # def InitField(self,InitField,BCField,coords):
 
-        NumNodes=coords.shape[0]
-        DOFNums=np.empty(shape=(NumNodes),dtype=np.int32)
-        fNP1=np.empty(shape=(NumNodes),dtype=np.float64)
+    #     NumNodes=coords.shape[0]
+    #     DOFNums=np.empty(shape=(NumNodes),dtype=np.int32)
+    #     fNP1=np.empty(shape=(NumNodes),dtype=np.float64)
  
+
 #==========================================================================
 class TimeInt:
 
@@ -381,7 +420,7 @@ class NonlinearControl:
         print("done")
 
 
-    def CheckConvergence(self,iNonlin,df):
+    def CheckConvergence(self,step,iNonlin,df):
 
         IncNorm=np.sqrt(np.dot(df,df))
         if (iNonlin==1):
@@ -397,7 +436,7 @@ class NonlinearControl:
                 IncPass=False
                 IncPassStr="FAIL"
 
-        print(" convergence information, nonlinear iteration {}".format(iNonlin))
+        print(" convergence information, step {}, nonlinear iteration {}".format(step,iNonlin))
         print("                initial        current        required      status")
     # fix the workflow to support proper checking of residual and stuff . . .`
         print("increment:   {:12.5e}   {:12.5e}    {:12.5e}     {}".format(self.IncNorm0,IncNorm,self.IncNormReq,IncPassStr)) 
@@ -493,7 +532,7 @@ def UpdateStorageTerm(ps,m,mat,f,ls):
 
     for iElem in range(NumElems):
         PrintFlag=False
-        # if (iElem==3 or iElem==5):
+        # if (iElem==2):
         #     PrintFlag=True
         if (PrintFlag):
             print("updating storage term for iElem={} now . . .".format(iElem))
@@ -503,6 +542,10 @@ def UpdateStorageTerm(ps,m,mat,f,ls):
         NodeRates=f.fdotNP1[ElemNodes]
         if (PrintFlag):
             print("ElemNodes(iElem={})={}".format(iElem,ElemNodes))
+            PrevNodeTemps=f.fN[ElemNodes]
+            print("PrevNodeTemps(iElem={})={}".format(iElem,PrevNodeTemps))
+            print("NodeTemps(iElem={})={}".format(iElem,NodeTemps))
+            print("NodeRates(iElem={})={}".format(iElem,NodeRates))
         ElemRHS.fill(0.0)
         ElemLHS.fill(0.0)
         for iip in range(NumIntPoints):
@@ -566,8 +609,8 @@ def UpdateDiffusionTerm(ps,m,mat,f,ls):
 
     for iElem in range(NumElems):
         PrintFlag=False
-        # if (iElem==2 or iElem==3):
-        # PrintFlag=True
+        # if (iElem==2):
+        #     PrintFlag=True
         if (PrintFlag):
             print("updating diffusion term for iElem={} now . . .".format(iElem))
         ElemNodes=m.elems[:,iElem]
@@ -585,8 +628,6 @@ def UpdateDiffusionTerm(ps,m,mat,f,ls):
             IntPointRate=np.dot(ps.N[:,iip],NodeRates)
             # print("IntPointRate={}".format(IntPointRate))
             # print("dt={}".format(dt))
-            dTdot_dT=ti.dTdot_dT(dt)
-            # print("dTdot_dT={}".format(dTdot_dT))
             Nlocal=ps.N[:,iip]
 
             # calculate dTdx
@@ -633,22 +674,22 @@ def UpdateDiffusionTerm(ps,m,mat,f,ls):
 
 
 #==========================================================================
-def plotter(m,f,time,nonlin,PlotMesh,PlotField):
+def plotter(m,f,step,time,nonlin,PlotMesh,PlotField):
     if (PlotMesh):
         m.plot()
     if (PlotField):
         f.plot(m,(time==0.0 and nonlin==0))
     if (nonlin==0):
-        plt.title("time={:12.5e}".format(time))
+        plt.title("step {}, time={:12.5e}".format(step,time))
     else:
-        plt.title("time={:12.5e}, nonlinear iteration={}".format(time,nonlin))
-    plt.pause(0.50)
+        plt.title("step {},time={:12.5e}, nonlinear iteration={}".format(step,time,nonlin))
+    plt.pause(0.01)
 
 
 #==========================================================================
 # user inputs
 #==========================================================================
-NumEdgeElems=20
+NumEdgeElems=2
 NumIntPoints=4
 
 # 316L
@@ -659,14 +700,16 @@ k=0.0163 # W/mm-K
 InitialTemp=303.0
 BCTemp=505.0
 
-MaxNumSteps=10^10
-MaxNumSteps=2
-EndTime=1.0
-dt=1.0e-02
+MaxNumSteps=0
+# MaxNumSteps=50000
+EndTime=2.0e-03
+EndTime=1.0e+00
+dt=(1.6e-03)/3.0
+# dt=1.0e-01
 TimeIntType=1 # generalized trapezoidal
 alpha=1.0
 
-MaxNonlinIters=10
+MaxNonlinIters=3
 
 ResRelTol=1.0e-03
 IncRelTol=1.0e-06
@@ -680,18 +723,22 @@ ps=ParametricSpace(NumIntPoints)
 m=mesh(NumEdgeElems,PlotInit=False)
 mat=material(rho,cp,k)
 f=fields(InitialTemp,BCTemp,m,PlotInit=False)
-vs=sources()
+vs=sources(600.0,250.0)
 
 ti=TimeInt(TimeIntType,alpha)
 nc=NonlinearControl(IncRelTol,IncAbsTol)
 ls=LinearSystem(f)
 
+f.timehist_node(7)
+f.timehist(7,0.0,f.fNP1[7])
+
 PlotFlag=False
-PlotFlag=True
+# PlotFlag=True
+PlotFreq=50
 
 if (PlotFlag):
     fig=plt.figure("primary figure window",figsize=(11,9))
-    plotter(m,f,0.0,0,True,True)
+    plotter(m,f,0,0.0,0,True,True)
 
 
 #==========================================================================
@@ -699,6 +746,7 @@ if (PlotFlag):
 #==========================================================================
 StepNum=0
 Time=0.0
+LastPlotStep=0
 while True:
     StepNum=StepNum+1
 
@@ -714,24 +762,40 @@ while True:
         iNonlin=iNonlin+1
 
         ls.zero()
+        # print("fN before element calcs={}".format(f.fN))
+        # print("fNP1 before element calcs={}".format(f.fNP1))
         UpdateStorageTerm(ps,m,mat,f,ls)
         UpdateDiffusionTerm(ps,m,mat,f,ls)
         # UpdateSourceTerm
         dT=ls.solve()
+        # print("fN before inc update={}".format(f.fN))
         # print("solution before update={}".format(f.fNP1))
         # print("solution increment={}".format(dT))
         f.update(dT,m,ti,dt)
+        # print("fN after inc update={}".format(f.fN))
         # print("solution after update={}".format(f.fNP1))
         print("")
 
-        ConvergedFlag,CompleteFlag=nc.CheckConvergence(iNonlin,dT)
+        ConvergedFlag,CompleteFlag=nc.CheckConvergence(StepNum,iNonlin,dT)
+
+        sys.stdout.flush()
 
         if (ConvergedFlag):
+            f.advance()
+            f.timehist(7,Time,f.fNP1[7])
             if (PlotFlag):
-                plotter(m,f,Time,0,True,True)
+                if (StepNum==1):
+                    LastPlotStep=1
+                    plotter(m,f,StepNum,Time,0,True,True)
+                else:
+                    # print("StepNum={}, LastPlotStep={}".format(StepNum,LastPlotStep))
+                    if ((StepNum-LastPlotStep)==PlotFreq):
+                        LastPlotStep=StepNum
+                        plotter(m,f,StepNum,Time,0,True,True)
+                        
         # else:
-        #     if (PlotFlag):
-        #         plotter(m,f,Time,iNonlin,True,True)
+            # if (PlotFlag):
+            #     plotter(m,f,StepNum,Time,iNonlin,True,True)
 
         if CompleteFlag:
             break
@@ -739,13 +803,25 @@ while True:
     print("")
 
     # time stepping termination criteria
+
     # number of steps
-    if (StepNum==MaxNumSteps):
+    if (MaxNumSteps>0 and StepNum==MaxNumSteps):
+        if (PlotFlag):
+            if (LastPlotStep!=StepNum):
+                plotter(m,f,StepNum,Time,0,True,True)
         break
     # end of time
     if (Time>=EndTime):
+        if (PlotFlag):
+            if (LastPlotStep!=StepNum):
+                plotter(m,f,StepNum,Time,0,True,True)
+        break
+    # nonlinear convergence failed
+    if (not ConvergedFlag and CompleteFlag):
         break
 
 if (PlotFlag):
     plt.show()
+
+f.timehist(7,DoIt=True)
 
